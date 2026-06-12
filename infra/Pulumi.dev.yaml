@@ -1,0 +1,34 @@
+config:
+  # GCP project and region configuration
+  gcp:project: "your-gcp-project-id"
+  gcp:region: "us-central1"
+
+  # Neon API Key
+  # Set via environment variable NEON_API_KEY, or encrypt it here:
+  ss-infra:neonApiKey:
+    secure: "your-neon-api-key"
+
+  # Cloudflare API Token (automatically used by Cloudflare provider)
+  # Set via environment variable CLOUDFLARE_API_TOKEN, or encrypt it here:
+  # cloudflare:apiToken:
+  #   secure: "encrypted-api-token"
+
+  # Application specific configurations
+  ss-infra:cloudflareAccountId: "your-cloudflare-account-id"
+  
+  # Optional: Custom domain configurations (omit if you want default URLs only)
+  # ss-infra:domainName: "example.com"
+  # ss-infra:cloudflareZoneId: "your-cloudflare-zone-id"
+  
+  # Better Auth secret key
+  ss-infra:betterAuthSecret:
+    secure: "vL71Y2Kqj1yFp9/yP95p7X==" # Use `openssl rand -hex 32` to generate
+
+  # Cloudflare R2 Credentials for Backend S3 compatibility
+  ss-infra:r2AccessKeyId:
+    secure: "your-r2-access-key-id"
+  ss-infra:r2SecretAccessKey:
+    secure: "your-r2-secret-access-key"
+
+  # Image configuration
+  ss-infra:backendImageTag: "latest"
