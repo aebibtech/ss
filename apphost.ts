@@ -10,7 +10,7 @@ const postgres = await builder
     .addPostgres("db")
     .withDataVolume()
     .withPersistentLifetime()
-    .withPgWeb();
+    .withPgAdmin();
 
 const backend = await builder
     .addBunApp("backend", "./backend", "index.ts")
