@@ -1,0 +1,336 @@
+name: Production Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  # ==========================================
+  # Job 1: Infrastructure Deployment (Pulumi)
+  # ==========================================
+  infra:
+    name: Deploy Infrastructure
+    runs-on: ubuntu-latest
+    outputs:
+      infra_changed: ${{ steps.filter.outputs.infra }}
+      backend_changed: ${{ steps.filter.outputs.backend }}
+      frontend_changed: ${{ steps.filter.outputs.frontend }}
+      brand_changed: ${{ steps.filter.outputs.brand }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Detect changed files to filter downstream jobs
+      - name: Detect Changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            infra:
+              - 'infra/**'
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            brand:
+              - 'brand/**'
+
+      - name: Setup Node.js
+        if: steps.filter.outputs.infra == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Authenticate to Google Cloud
+        if: steps.filter.outputs.infra == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Install Dependencies
+        if: steps.filter.outputs.infra == 'true'
+        run: |
+          cd infra
+          npm ci
+
+      - name: Run Pulumi Up
+        if: steps.filter.outputs.infra == 'true'
+        uses: pulumi/actions@v5
+        with:
+          command: up
+          stack-name: dev
+          work-dir: infra
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+
+  # ==========================================
+  # Job 2: Build & Deploy Backend
+  # ==========================================
+  backend:
+    name: Deploy Backend
+    needs: [infra]
+    # Enforces that infra succeeds, and only runs if backend code changed
+    if: needs.infra.outputs.backend_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v5
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Infra Dependencies
+        run: |
+          cd infra
+          npm ci
+
+      - name: Get Repository and DB Connection Info from Pulumi
+        id: pulumi-info
+        run: |
+          cd infra
+          pulumi stack select dev
+          
+          REGISTRY_URL=$(pulumi stack output registryUrl || echo "")
+          echo "registry_url=$REGISTRY_URL" >> $GITHUB_OUTPUT
+          
+          DB_CONN=$(pulumi stack output dbConnectionUri --show-secrets || echo "")
+          echo "db_connection_uri=$DB_CONN" >> $GITHUB_OUTPUT
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Configure Docker authentication for GCP Artifact Registry
+        if: steps.pulumi-info.outputs.registry_url != ''
+        run: |
+          REGISTRY_HOST=$(echo "${{ steps.pulumi-info.outputs.registry_url }}" | awk -F/ '{print $1}')
+          gcloud auth configure-docker $REGISTRY_HOST --quiet
+
+      - name: Build and Push Backend Docker Image
+        if: steps.pulumi-info.outputs.registry_url != ''
+        run: |
+          REGISTRY_URL="${{ steps.pulumi-info.outputs.registry_url }}"
+          IMAGE_TAG="${{ github.sha }}"
+          docker build -t $REGISTRY_URL/backend:$IMAGE_TAG -t $REGISTRY_URL/backend:latest ./backend
+          docker push $REGISTRY_URL/backend:$IMAGE_TAG
+          docker push $REGISTRY_URL/backend:latest
+
+      - name: Run Drizzle Database Migrations
+        if: steps.pulumi-info.outputs.db_connection_uri != ''
+        run: |
+          cd backend
+          bun install --frozen-lockfile
+          DATABASE_URL="${{ steps.pulumi-info.outputs.db_connection_uri }}" bunx drizzle-kit migrate
+        env:
+          ConnectionStrings__db: ${{ steps.pulumi-info.outputs.db_connection_uri }}
+
+      - name: Update Cloud Run Service via Pulumi
+        run: |
+          cd infra
+          pulumi config set backendImageTag ${{ github.sha }}
+          pulumi up --yes --skip-preview
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+
+  # ==========================================
+  # Job 3: Deploy Landing Page
+  # ==========================================
+  landing-page:
+    name: Deploy Landing Page (Astro)
+    needs: [infra]
+    # Enforces that infra succeeds, and only runs if brand code changed
+    if: needs.infra.outputs.brand_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          cd brand
+          npm ci
+
+      - name: Build Astro Brand Site
+        run: |
+          cd brand
+          npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ss-landing-page
+          directory: brand/dist
+          gitBranch: main
+
+  # ==========================================
+  # Job 4: Deploy Frontend Web
+  # ==========================================
+  frontend-web:
+    name: Deploy Frontend Web (Flutter)
+    needs: [infra]
+    # Enforces that infra succeeds, and only runs if frontend code changed
+    if: needs.infra.outputs.frontend_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v5
+
+      - name: Get Backend API URL from Pulumi
+        id: pulumi-info
+        run: |
+          cd infra
+          pulumi stack select dev
+          BACKEND_URL=$(pulumi stack output backendApiUrl || echo "https://ss-backend.pages.dev")
+          echo "backend_api_url=$BACKEND_URL" >> $GITHUB_OUTPUT
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          flutter pub get
+
+      - name: Build Web Application
+        run: |
+          cd frontend
+          flutter build web --release --dart-define=BACKEND_HTTP=${{ steps.pulumi-info.outputs.backend_api_url }}
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ss-frontend
+          directory: frontend/build/web
+          gitBranch: main
+
+  # ==========================================
+  # Job 5: Deploy Frontend Android
+  # ==========================================
+  frontend-android:
+    name: Deploy Android App (Flutter)
+    needs: [infra]
+    # Enforces that infra succeeds, and only runs if frontend code changed
+    if: needs.infra.outputs.frontend_changed == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Pulumi CLI
+        uses: pulumi/actions@v5
+
+      - name: Get Backend API URL from Pulumi
+        id: pulumi-info
+        run: |
+          cd infra
+          pulumi stack select dev
+          BACKEND_URL=$(pulumi stack output backendApiUrl || echo "https://ss-backend.pages.dev")
+          echo "backend_api_url=$BACKEND_URL" >> $GITHUB_OUTPUT
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          flutter pub get
+
+      - name: Decode Android Keystore
+        if: env.has_keystore == 'true'
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > frontend/android/app/release.jks
+        env:
+          has_keystore: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
+      - name: Create key.properties file
+        if: env.has_keystore == 'true'
+        run: |
+          cat <<EOF > frontend/android/key.properties
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEYSTORE_ALIAS }}
+          storeFile=release.jks
+          EOF
+        env:
+          has_keystore: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
+      - name: Build Android App Bundle (AAB)
+        run: |
+          cd frontend
+          flutter build appbundle --release --dart-define=BACKEND_HTTP=${{ steps.pulumi-info.outputs.backend_api_url }}
+
+      - name: Publish to Google Play Store (Internal Track)
+        if: env.has_play_credentials == 'true'
+        uses: r0adk5l/google-play-publisher@v1.4.1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.example.frontend
+          releaseFiles: frontend/build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+        env:
+          has_play_credentials: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
