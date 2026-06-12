@@ -6,6 +6,7 @@ import {
   boolean,
   index,
   uniqueIndex,
+  integer,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
@@ -145,6 +146,7 @@ export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   members: many(member),
   invitations: many(invitation),
+  movies: many(movie),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -184,6 +186,34 @@ export const invitationRelations = relations(invitation, ({ one }) => ({
   }),
   user: one(user, {
     fields: [invitation.inviterId],
+    references: [user.id],
+  }),
+}));
+
+export const movie = pgTable(
+  "movie",
+  {
+    id: text("id").primaryKey(),
+    title: text("title").notNull(),
+    genre: text("genre").notNull(),
+    director: text("director").notNull(),
+    releaseYear: integer("release_year").notNull(),
+    description: text("description"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [index("movie_userId_idx").on(table.userId)],
+);
+
+export const movieRelations = relations(movie, ({ one }) => ({
+  user: one(user, {
+    fields: [movie.userId],
     references: [user.id],
   }),
 }));

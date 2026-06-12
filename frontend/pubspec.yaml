@@ -1,5 +1,5 @@
 name: frontend
-description: "A new Flutter project."
+description: "A new project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -37,6 +37,8 @@ dependencies:
   http: ^1.6.0
   shared_preferences: ^2.5.5
   url_launcher: ^6.3.2
+  graphql: ^5.2.4
+  file_picker: ^11.0.2
 
 dev_dependencies:
   flutter_test:
