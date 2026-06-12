@@ -1,4 +1,4 @@
-import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, CreateBucketCommand, HeadBucketCommand, PutObjectCommand, GetObjectCommand, PutBucketPolicyCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 // Read environment variables
@@ -55,10 +55,37 @@ export async function initializeBucket() {
         console.log(`[S3 Client] Bucket "${bucketName}" created successfully.`);
       } catch (createError) {
         console.error(`[S3 Client] Failed to create bucket "${bucketName}":`, createError);
+        return;
       }
     } else {
       console.error(`[S3 Client] Error checking bucket status:`, error);
+      return;
     }
+  }
+
+  // Set public read bucket policy (for local MinIO, bypassed on R2 in production)
+  try {
+    console.log(`[S3 Client] Setting public read policy for bucket "${bucketName}"...`);
+    const policy = {
+      Version: "2012-10-17",
+      Statement: [
+        {
+          Sid: "PublicRead",
+          Effect: "Allow",
+          Principal: "*",
+          Action: ["s3:GetObject"],
+          Resource: [`arn:aws:s3:::${bucketName}/*`],
+        },
+      ],
+    };
+    
+    await s3Client.send(new PutBucketPolicyCommand({
+      Bucket: bucketName,
+      Policy: JSON.stringify(policy),
+    }));
+    console.log(`[S3 Client] Public read policy set successfully.`);
+  } catch (policyError) {
+    console.warn(`[S3 Client] Could not set public read policy (expected if using Cloudflare R2):`, policyError);
   }
 }
 

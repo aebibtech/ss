@@ -306,6 +306,7 @@ class AuthService {
             director
             releaseYear
             description
+            bannerUrl
             userId
             createdAt
             updatedAt
@@ -339,17 +340,19 @@ class AuthService {
     required String director,
     required int releaseYear,
     String? description,
+    String? bannerUrl,
   }) async {
     try {
       const String createMovieMutation = r'''
-        mutation CreateMovie($title: String!, $genre: String!, $director: String!, $releaseYear: Int!, $description: String) {
-          createMovie(title: $title, genre: $genre, director: $director, releaseYear: $releaseYear, description: $description) {
+        mutation CreateMovie($title: String!, $genre: String!, $director: String!, $releaseYear: Int!, $description: String, $bannerUrl: String) {
+          createMovie(title: $title, genre: $genre, director: $director, releaseYear: $releaseYear, description: $description, bannerUrl: $bannerUrl) {
             id
             title
             genre
             director
             releaseYear
             description
+            bannerUrl
             userId
             createdAt
             updatedAt
@@ -365,6 +368,7 @@ class AuthService {
           'director': director,
           'releaseYear': releaseYear,
           'description': description,
+          'bannerUrl': bannerUrl,
         },
       );
 
@@ -390,17 +394,19 @@ class AuthService {
     String? director,
     int? releaseYear,
     String? description,
+    String? bannerUrl,
   }) async {
     try {
       const String updateMovieMutation = r'''
-        mutation UpdateMovie($id: ID!, $title: String, $genre: String, $director: String, $releaseYear: Int, $description: String) {
-          updateMovie(id: $id, title: $title, genre: $genre, director: $director, releaseYear: $releaseYear, description: $description) {
+        mutation UpdateMovie($id: ID!, $title: String, $genre: String, $director: String, $releaseYear: Int, $description: String, $bannerUrl: String) {
+          updateMovie(id: $id, title: $title, genre: $genre, director: $director, releaseYear: $releaseYear, description: $description, bannerUrl: $bannerUrl) {
             id
             title
             genre
             director
             releaseYear
             description
+            bannerUrl
             userId
             createdAt
             updatedAt
@@ -417,6 +423,7 @@ class AuthService {
           'director': director,
           'releaseYear': releaseYear,
           'description': description,
+          'bannerUrl': bannerUrl,
         },
       );
 

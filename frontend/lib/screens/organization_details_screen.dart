@@ -373,11 +373,6 @@ class _OrganizationDetailsScreenState extends State<OrganizationDetailsScreen> w
               'Workspace Members (${_members.length})',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
             ),
-            if (isOwnerOrAdmin)
-              Text(
-                'RBAC Settings Enabled',
-                style: TextStyle(fontSize: 11, color: Colors.green.shade400, fontWeight: FontWeight.bold),
-              ),
           ],
         ),
         const SizedBox(height: 12),

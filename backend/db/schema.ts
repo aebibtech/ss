@@ -199,6 +199,7 @@ export const movie = pgTable(
     director: text("director").notNull(),
     releaseYear: integer("release_year").notNull(),
     description: text("description"),
+    bannerUrl: text("banner_url"),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

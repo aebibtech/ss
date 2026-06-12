@@ -92,6 +92,7 @@ export const typeDefs = `#graphql
     director: String!
     releaseYear: Int!
     description: String
+    bannerUrl: String
     userId: String!
     createdAt: String!
     updatedAt: String!
@@ -119,8 +120,8 @@ export const typeDefs = `#graphql
 
   type Mutation {
     createOrganization(name: String!, slug: String!): Organization!
-    createMovie(title: String!, genre: String!, director: String!, releaseYear: Int!, description: String): Movie!
-    updateMovie(id: ID!, title: String, genre: String, director: String, releaseYear: Int, description: String): Movie!
+    createMovie(title: String!, genre: String!, director: String!, releaseYear: Int!, description: String, bannerUrl: String): Movie!
+    updateMovie(id: ID!, title: String, genre: String, director: String, releaseYear: Int, description: String, bannerUrl: String): Movie!
     deleteMovie(id: ID!): Boolean!
     updateProfileImage(image: String!): User!
     
@@ -566,7 +567,7 @@ export const resolvers = {
     },
     createMovie: async (
       parent: any,
-      args: { title: string; genre: string; director: string; releaseYear: number; description?: string },
+      args: { title: string; genre: string; director: string; releaseYear: number; description?: string; bannerUrl?: string },
       context: GraphQLContext
     ) => {
       if (!context.user) {
@@ -580,6 +581,7 @@ export const resolvers = {
         director: args.director,
         releaseYear: args.releaseYear,
         description: args.description,
+        bannerUrl: args.bannerUrl,
         userId: context.user.id,
       }).returning();
       const created = insertResult[0];
@@ -590,7 +592,7 @@ export const resolvers = {
     },
     updateMovie: async (
       parent: any,
-      args: { id: string; title?: string; genre?: string; director?: string; releaseYear?: number; description?: string },
+      args: { id: string; title?: string; genre?: string; director?: string; releaseYear?: number; description?: string; bannerUrl?: string },
       context: GraphQLContext
     ) => {
       if (!context.user) {
@@ -611,6 +613,7 @@ export const resolvers = {
       if (args.director !== undefined) updateData.director = args.director;
       if (args.releaseYear !== undefined) updateData.releaseYear = args.releaseYear;
       if (args.description !== undefined) updateData.description = args.description;
+      if (args.bannerUrl !== undefined) updateData.bannerUrl = args.bannerUrl;
 
       const updateResult = await db
         .update(movie)
