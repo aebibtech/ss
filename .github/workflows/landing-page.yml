@@ -1,0 +1,42 @@
+name: Landing Page CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'brand/**'
+      - '.github/workflows/landing-page.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-landing-page:
+    name: Deploy Landing Page (Astro)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          cd brand
+          npm ci
+
+      - name: Build Astro Brand Site
+        run: |
+          cd brand
+          npm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ss-landing-page
+          directory: brand/dist
+          gitBranch: main
