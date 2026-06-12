@@ -275,7 +275,12 @@ export const resolvers = {
       const invites = await db
         .select()
         .from(invitation)
-        .where(eq(invitation.organizationId, args.organizationId))
+        .where(
+          and(
+            eq(invitation.organizationId, args.organizationId),
+            eq(invitation.status, "pending")
+          )
+        )
         .leftJoin(user, eq(invitation.inviterId, user.id));
 
       return invites.map((i) => {
