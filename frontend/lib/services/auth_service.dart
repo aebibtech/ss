@@ -103,6 +103,7 @@ class AuthService {
               userAgent
               createdAt
               updatedAt
+              activeOrganizationId
             }
           }
         }
@@ -545,6 +546,377 @@ class AuthService {
       return result.data?['updateProfileImage'] != null;
     } catch (e) {
       debugPrint('Error updating profile image: $e');
+      return false;
+    }
+  }
+
+  // Set the active organization
+  Future<Map<String, dynamic>?> setActiveOrganization(String organizationId) async {
+    try {
+      const String setActiveMutation = r'''
+        mutation SetActiveOrg($organizationId: ID!) {
+          setActiveOrganization(organizationId: $organizationId) {
+            id
+            userId
+            expiresAt
+            token
+            activeOrganizationId
+          }
+        }
+      ''';
+
+      final MutationOptions options = MutationOptions(
+        document: gql(setActiveMutation),
+        variables: {
+          'organizationId': organizationId,
+        },
+      );
+
+      final QueryResult result = await _gqlClient.mutate(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error setting active organization: ${result.exception.toString()}');
+        return null;
+      }
+
+      final sessionData = result.data?['setActiveOrganization'];
+      if (sessionData != null && _cachedSession != null) {
+        _cachedSession!['session'] = sessionData;
+      }
+      return sessionData as Map<String, dynamic>?;
+    } catch (e) {
+      debugPrint('Error setting active organization: $e');
+      return null;
+    }
+  }
+
+  // List members of active organization
+  Future<List<dynamic>> listActiveOrganizationMembers(String organizationId) async {
+    try {
+      const String query = r'''
+        query GetActiveOrgMembers($organizationId: ID!) {
+          activeOrganizationMembers(organizationId: $organizationId) {
+            id
+            organizationId
+            userId
+            role
+            createdAt
+            user {
+              id
+              name
+              email
+              image
+              role
+            }
+          }
+        }
+      ''';
+
+      final QueryOptions options = QueryOptions(
+        document: gql(query),
+        variables: {'organizationId': organizationId},
+        fetchPolicy: FetchPolicy.noCache,
+      );
+
+      final QueryResult result = await _gqlClient.query(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error listing members: ${result.exception.toString()}');
+        return [];
+      }
+
+      return result.data?['activeOrganizationMembers'] ?? [];
+    } catch (e) {
+      debugPrint('Error listing members: $e');
+      return [];
+    }
+  }
+
+  // List invitations of active organization
+  Future<List<dynamic>> listActiveOrganizationInvitations(String organizationId) async {
+    try {
+      const String query = r'''
+        query GetActiveOrgInvitations($organizationId: ID!) {
+          activeOrganizationInvitations(organizationId: $organizationId) {
+            id
+            organizationId
+            email
+            role
+            status
+            expiresAt
+            createdAt
+            inviter {
+              id
+              name
+              email
+            }
+          }
+        }
+      ''';
+
+      final QueryOptions options = QueryOptions(
+        document: gql(query),
+        variables: {'organizationId': organizationId},
+        fetchPolicy: FetchPolicy.noCache,
+      );
+
+      final QueryResult result = await _gqlClient.query(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error listing invitations: ${result.exception.toString()}');
+        return [];
+      }
+
+      return result.data?['activeOrganizationInvitations'] ?? [];
+    } catch (e) {
+      debugPrint('Error listing invitations: $e');
+      return [];
+    }
+  }
+
+  // List pending invitations for the logged-in user
+  Future<List<dynamic>> listMyPendingInvitations() async {
+    try {
+      const String query = r'''
+        query GetMyPendingInvitations {
+          myPendingInvitations {
+            id
+            organizationId
+            email
+            role
+            status
+            expiresAt
+            createdAt
+            inviter {
+              id
+              name
+              email
+            }
+            organization {
+              id
+              name
+              slug
+            }
+          }
+        }
+      ''';
+
+      final QueryOptions options = QueryOptions(
+        document: gql(query),
+        fetchPolicy: FetchPolicy.noCache,
+      );
+
+      final QueryResult result = await _gqlClient.query(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error listing my invitations: ${result.exception.toString()}');
+        return [];
+      }
+
+      return result.data?['myPendingInvitations'] ?? [];
+    } catch (e) {
+      debugPrint('Error listing my invitations: $e');
+      return [];
+    }
+  }
+
+  // Invite a member
+  Future<Map<String, dynamic>?> inviteMember({
+    required String email,
+    required String role,
+    required String organizationId,
+  }) async {
+    try {
+      const String inviteMutation = r'''
+        mutation Invite($email: String!, $role: String!, $organizationId: ID!) {
+          inviteMember(email: $email, role: $role, organizationId: $organizationId) {
+            id
+            organizationId
+            email
+            role
+            status
+            expiresAt
+            createdAt
+          }
+        }
+      ''';
+
+      final MutationOptions options = MutationOptions(
+        document: gql(inviteMutation),
+        variables: {
+          'email': email,
+          'role': role,
+          'organizationId': organizationId,
+        },
+      );
+
+      final QueryResult result = await _gqlClient.mutate(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error inviting member: ${result.exception.toString()}');
+        final errors = result.exception?.graphqlErrors;
+        if (errors != null && errors.isNotEmpty) {
+          throw Exception(errors.first.message);
+        }
+        throw Exception('Failed to invite member');
+      }
+
+      return result.data?['inviteMember'] as Map<String, dynamic>?;
+    } catch (e) {
+      debugPrint('Error inviting member: $e');
+      rethrow;
+    }
+  }
+
+  // Cancel invitation
+  Future<bool> cancelInvitation(String invitationId) async {
+    try {
+      const String cancelMutation = r'''
+        mutation Cancel($invitationId: ID!) {
+          cancelInvitation(invitationId: $invitationId)
+        }
+      ''';
+
+      final MutationOptions options = MutationOptions(
+        document: gql(cancelMutation),
+        variables: {
+          'invitationId': invitationId,
+        },
+      );
+
+      final QueryResult result = await _gqlClient.mutate(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error cancelling invitation: ${result.exception.toString()}');
+        return false;
+      }
+
+      return result.data?['cancelInvitation'] == true;
+    } catch (e) {
+      debugPrint('Error cancelling invitation: $e');
+      return false;
+    }
+  }
+
+  // Accept invitation
+  Future<bool> acceptInvitation(String invitationId) async {
+    try {
+      const String acceptMutation = r'''
+        mutation Accept($invitationId: ID!) {
+          acceptInvitation(invitationId: $invitationId)
+        }
+      ''';
+
+      final MutationOptions options = MutationOptions(
+        document: gql(acceptMutation),
+        variables: {
+          'invitationId': invitationId,
+        },
+      );
+
+      final QueryResult result = await _gqlClient.mutate(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error accepting invitation: ${result.exception.toString()}');
+        return false;
+      }
+
+      return result.data?['acceptInvitation'] == true;
+    } catch (e) {
+      debugPrint('Error accepting invitation: $e');
+      return false;
+    }
+  }
+
+  // Reject invitation
+  Future<bool> rejectInvitation(String invitationId) async {
+    try {
+      const String rejectMutation = r'''
+        mutation Reject($invitationId: ID!) {
+          rejectInvitation(invitationId: $invitationId)
+        }
+      ''';
+
+      final MutationOptions options = MutationOptions(
+        document: gql(rejectMutation),
+        variables: {
+          'invitationId': invitationId,
+        },
+      );
+
+      final QueryResult result = await _gqlClient.mutate(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error rejecting invitation: ${result.exception.toString()}');
+        return false;
+      }
+
+      return result.data?['rejectInvitation'] == true;
+    } catch (e) {
+      debugPrint('Error rejecting invitation: $e');
+      return false;
+    }
+  }
+
+  // Remove member
+  Future<bool> removeMember(String memberId, String organizationId) async {
+    try {
+      const String removeMutation = r'''
+        mutation Remove($memberId: ID!, $organizationId: ID!) {
+          removeMember(memberId: $memberId, organizationId: $organizationId)
+        }
+      ''';
+
+      final MutationOptions options = MutationOptions(
+        document: gql(removeMutation),
+        variables: {
+          'memberId': memberId,
+          'organizationId': organizationId,
+        },
+      );
+
+      final QueryResult result = await _gqlClient.mutate(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error removing member: ${result.exception.toString()}');
+        return false;
+      }
+
+      return result.data?['removeMember'] == true;
+    } catch (e) {
+      debugPrint('Error removing member: $e');
+      return false;
+    }
+  }
+
+  // Update member role
+  Future<bool> updateMemberRole(String memberId, String role, String organizationId) async {
+    try {
+      const String updateMutation = r'''
+        mutation UpdateRole($memberId: ID!, $role: String!, $organizationId: ID!) {
+          updateMemberRole(memberId: $memberId, role: $role, organizationId: $organizationId)
+        }
+      ''';
+
+      final MutationOptions options = MutationOptions(
+        document: gql(updateMutation),
+        variables: {
+          'memberId': memberId,
+          'role': role,
+          'organizationId': organizationId,
+        },
+      );
+
+      final QueryResult result = await _gqlClient.mutate(options);
+
+      if (result.hasException) {
+        debugPrint('GraphQL Error updating member role: ${result.exception.toString()}');
+        return false;
+      }
+
+      return result.data?['updateMemberRole'] == true;
+    } catch (e) {
+      debugPrint('Error updating member role: $e');
       return false;
     }
   }

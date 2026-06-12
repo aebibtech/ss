@@ -1,13 +1,14 @@
 import { ApolloServer } from "@apollo/server";
 import { auth } from "./auth";
 import { db } from "./db";
-import { user, session, organization, member, movie } from "./db/schema";
-import { count, eq } from "drizzle-orm";
+import { user, session, organization, member, movie, invitation } from "./db/schema";
+import { count, eq, and } from "drizzle-orm";
 import { getPresignedPutUrl, getPublicUrl } from "./s3";
 
 export interface GraphQLContext {
   user: any;
   session: any;
+  headers?: any;
 }
 
 export const typeDefs = `#graphql
@@ -31,6 +32,7 @@ export const typeDefs = `#graphql
     userAgent: String
     createdAt: String!
     updatedAt: String!
+    activeOrganizationId: String
   }
 
   type MePayload {
@@ -53,6 +55,28 @@ export const typeDefs = `#graphql
     role: String!
     createdAt: String!
     organization: Organization!
+  }
+
+  type OrganizationMember {
+    id: ID!
+    organizationId: String!
+    userId: String!
+    role: String!
+    createdAt: String!
+    user: User!
+  }
+
+  type OrganizationInvitation {
+    id: ID!
+    organizationId: String!
+    email: String!
+    role: String!
+    status: String!
+    expiresAt: String!
+    createdAt: String!
+    inviterId: String!
+    inviter: User!
+    organization: Organization
   }
 
   type AdminStats {
@@ -86,6 +110,11 @@ export const typeDefs = `#graphql
     movies: [Movie!]!
     movie(id: ID!): Movie
     presignedUploadUrl(fileName: String!, contentType: String!): PresignedUrlPayload!
+    
+    # Organization Management
+    activeOrganizationMembers(organizationId: ID!): [OrganizationMember!]!
+    activeOrganizationInvitations(organizationId: ID!): [OrganizationInvitation!]!
+    myPendingInvitations: [OrganizationInvitation!]!
   }
 
   type Mutation {
@@ -94,6 +123,15 @@ export const typeDefs = `#graphql
     updateMovie(id: ID!, title: String, genre: String, director: String, releaseYear: Int, description: String): Movie!
     deleteMovie(id: ID!): Boolean!
     updateProfileImage(image: String!): User!
+    
+    # Organization Management
+    setActiveOrganization(organizationId: ID!): Session!
+    inviteMember(email: String!, role: String!, organizationId: ID!): OrganizationInvitation!
+    cancelInvitation(invitationId: ID!): Boolean!
+    acceptInvitation(invitationId: ID!): Boolean!
+    rejectInvitation(invitationId: ID!): Boolean!
+    removeMember(memberId: ID!, organizationId: ID!): Boolean!
+    updateMemberRole(memberId: ID!, role: String!, organizationId: ID!): Boolean!
   }
 `;
 
@@ -179,6 +217,127 @@ export const resolvers = {
         };
       });
     },
+    activeOrganizationMembers: async (parent: any, args: { organizationId: string }, context: GraphQLContext) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      const userMembership = await db
+        .select()
+        .from(member)
+        .where(and(eq(member.userId, context.user.id), eq(member.organizationId, args.organizationId)))
+        .limit(1);
+
+      if (userMembership.length === 0) {
+        throw new Error("Forbidden: You are not a member of this organization");
+      }
+
+      const members = await db
+        .select()
+        .from(member)
+        .where(eq(member.organizationId, args.organizationId))
+        .leftJoin(user, eq(member.userId, user.id));
+
+      return members.map((m) => {
+        if (!m.user) {
+          throw new Error("User associated with membership not found");
+        }
+        return {
+          id: m.member.id,
+          organizationId: m.member.organizationId,
+          userId: m.member.userId,
+          role: m.member.role,
+          createdAt: m.member.createdAt instanceof Date ? m.member.createdAt.toISOString() : m.member.createdAt,
+          user: {
+            ...m.user,
+            createdAt: m.user.createdAt instanceof Date ? m.user.createdAt.toISOString() : m.user.createdAt,
+            updatedAt: m.user.updatedAt instanceof Date ? m.user.updatedAt.toISOString() : m.user.updatedAt,
+          },
+        };
+      });
+    },
+    activeOrganizationInvitations: async (parent: any, args: { organizationId: string }, context: GraphQLContext) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      const userMembership = await db
+        .select()
+        .from(member)
+        .where(and(eq(member.userId, context.user.id), eq(member.organizationId, args.organizationId)))
+        .limit(1);
+
+      if (userMembership.length === 0) {
+        throw new Error("Forbidden: You are not a member of this organization");
+      }
+
+      const invites = await db
+        .select()
+        .from(invitation)
+        .where(eq(invitation.organizationId, args.organizationId))
+        .leftJoin(user, eq(invitation.inviterId, user.id));
+
+      return invites.map((i) => {
+        if (!i.user) {
+          throw new Error("Inviter not found");
+        }
+        return {
+          id: i.invitation.id,
+          organizationId: i.invitation.organizationId,
+          email: i.invitation.email,
+          role: i.invitation.role ?? "member",
+          status: i.invitation.status,
+          expiresAt: i.invitation.expiresAt instanceof Date ? i.invitation.expiresAt.toISOString() : i.invitation.expiresAt,
+          createdAt: i.invitation.createdAt instanceof Date ? i.invitation.createdAt.toISOString() : i.invitation.createdAt,
+          inviterId: i.invitation.inviterId,
+          inviter: {
+            ...i.user,
+            createdAt: i.user.createdAt instanceof Date ? i.user.createdAt.toISOString() : i.user.createdAt,
+            updatedAt: i.user.updatedAt instanceof Date ? i.user.updatedAt.toISOString() : i.user.updatedAt,
+          },
+        };
+      });
+    },
+    myPendingInvitations: async (parent: any, args: any, context: GraphQLContext) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      const invites = await db
+        .select()
+        .from(invitation)
+        .where(and(eq(invitation.email, context.user.email), eq(invitation.status, "pending")))
+        .leftJoin(organization, eq(invitation.organizationId, organization.id))
+        .leftJoin(user, eq(invitation.inviterId, user.id));
+
+      return invites.map((i) => {
+        if (!i.organization) {
+          throw new Error("Organization associated with invitation not found");
+        }
+        if (!i.user) {
+          throw new Error("Inviter not found");
+        }
+        return {
+          id: i.invitation.id,
+          organizationId: i.invitation.organizationId,
+          email: i.invitation.email,
+          role: i.invitation.role ?? "member",
+          status: i.invitation.status,
+          expiresAt: i.invitation.expiresAt instanceof Date ? i.invitation.expiresAt.toISOString() : i.invitation.expiresAt,
+          createdAt: i.invitation.createdAt instanceof Date ? i.invitation.createdAt.toISOString() : i.invitation.createdAt,
+          inviterId: i.invitation.inviterId,
+          inviter: {
+            ...i.user,
+            createdAt: i.user.createdAt instanceof Date ? i.user.createdAt.toISOString() : i.user.createdAt,
+            updatedAt: i.user.updatedAt instanceof Date ? i.user.updatedAt.toISOString() : i.user.updatedAt,
+          },
+          organization: {
+            ...i.organization,
+            createdAt: i.organization.createdAt instanceof Date ? i.organization.createdAt.toISOString() : i.organization.createdAt,
+          },
+        };
+      });
+    },
     adminStats: async (parent: any, args: any, context: GraphQLContext) => {
       if (!context.user) {
         throw new Error("Unauthorized");
@@ -246,6 +405,164 @@ export const resolvers = {
         ...org,
         createdAt: org.createdAt instanceof Date ? org.createdAt.toISOString() : org.createdAt,
       };
+    },
+    setActiveOrganization: async (parent: any, args: { organizationId: string }, context: GraphQLContext) => {
+      if (!context.user || !context.session) {
+        throw new Error("Unauthorized");
+      }
+
+      const userMembership = await db
+        .select()
+        .from(member)
+        .where(and(eq(member.userId, context.user.id), eq(member.organizationId, args.organizationId)))
+        .limit(1);
+
+      if (userMembership.length === 0) {
+        throw new Error("Forbidden: You are not a member of this organization");
+      }
+
+      const updateResult = await db
+        .update(session)
+        .set({ activeOrganizationId: args.organizationId })
+        .where(eq(session.id, context.session.id))
+        .returning();
+
+      const updatedSession = updateResult[0];
+      if (!updatedSession) {
+        throw new Error("Failed to set active organization");
+      }
+
+      return {
+        ...updatedSession,
+        expiresAt: updatedSession.expiresAt instanceof Date ? updatedSession.expiresAt.toISOString() : updatedSession.expiresAt,
+        createdAt: updatedSession.createdAt instanceof Date ? updatedSession.createdAt.toISOString() : updatedSession.createdAt,
+        updatedAt: updatedSession.updatedAt instanceof Date ? updatedSession.updatedAt.toISOString() : updatedSession.updatedAt,
+      };
+    },
+    inviteMember: async (
+      parent: any,
+      args: { email: string; role: string; organizationId: string },
+      context: GraphQLContext
+    ) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      const res = await (auth.api as any).createInvitation({
+        body: {
+          email: args.email,
+          role: args.role,
+          organizationId: args.organizationId,
+        },
+        headers: context.headers,
+      });
+
+      if (!res) {
+        throw new Error("Failed to invite member");
+      }
+
+      const inviterUser = await db.select().from(user).where(eq(user.id, context.user.id)).limit(1);
+      const inviter = inviterUser[0];
+      if (!inviter) {
+        throw new Error("Inviter not found");
+      }
+
+      return {
+        id: res.id,
+        organizationId: res.organizationId,
+        email: res.email,
+        role: res.role,
+        status: res.status,
+        expiresAt: res.expiresAt instanceof Date ? res.expiresAt.toISOString() : res.expiresAt,
+        createdAt: res.createdAt instanceof Date ? res.createdAt.toISOString() : res.createdAt,
+        inviterId: context.user.id,
+        inviter: {
+          ...inviter,
+          createdAt: inviter.createdAt instanceof Date ? inviter.createdAt.toISOString() : inviter.createdAt,
+          updatedAt: inviter.updatedAt instanceof Date ? inviter.updatedAt.toISOString() : inviter.updatedAt,
+        },
+      };
+    },
+    cancelInvitation: async (parent: any, args: { invitationId: string }, context: GraphQLContext) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      await (auth.api as any).cancelInvitation({
+        body: {
+          invitationId: args.invitationId,
+        },
+        headers: context.headers,
+      });
+
+      return true;
+    },
+    acceptInvitation: async (parent: any, args: { invitationId: string }, context: GraphQLContext) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      await (auth.api as any).acceptInvitation({
+        body: {
+          invitationId: args.invitationId,
+        },
+        headers: context.headers,
+      });
+
+      return true;
+    },
+    rejectInvitation: async (parent: any, args: { invitationId: string }, context: GraphQLContext) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      await (auth.api as any).rejectInvitation({
+        body: {
+          invitationId: args.invitationId,
+        },
+        headers: context.headers,
+      });
+
+      return true;
+    },
+    removeMember: async (
+      parent: any,
+      args: { memberId: string; organizationId: string },
+      context: GraphQLContext
+    ) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      await (auth.api as any).removeMember({
+        body: {
+          memberIdOrEmail: args.memberId,
+          organizationId: args.organizationId,
+        },
+        headers: context.headers,
+      });
+
+      return true;
+    },
+    updateMemberRole: async (
+      parent: any,
+      args: { memberId: string; role: string; organizationId: string },
+      context: GraphQLContext
+    ) => {
+      if (!context.user) {
+        throw new Error("Unauthorized");
+      }
+
+      await (auth.api as any).updateMemberRole({
+        body: {
+          memberId: args.memberId,
+          role: args.role,
+          organizationId: args.organizationId,
+        },
+        headers: context.headers,
+      });
+
+      return true;
     },
     createMovie: async (
       parent: any,

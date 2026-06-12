@@ -37,10 +37,11 @@ app.use(
         return {
           user: sessionData?.user ?? null,
           session: sessionData?.session ?? null,
+          headers: req.headers,
         };
       } catch (error) {
         console.error("[GraphQL Context] Error getting session:", error);
-        return { user: null, session: null };
+        return { user: null, session: null, headers: req.headers };
       }
     },
   })
