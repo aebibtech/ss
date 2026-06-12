@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "restore": {
+    "AspireRestore": {}
+  },
+  "projects": {
+    "AspireRestore": {
+      "restore": {
+        "projectUniqueName": "AspireRestore",
+        "projectName": "AspireRestore",
+        "projectPath": "/Users/paul/Desktop/ss/.aspire/integrations/package-restore/6DE8FF3341FD8FE3/obj/project.json",
+        "packagesPath": "/Users/paul/.nuget/packages/",
+        "outputPath": "/Users/paul/Desktop/ss/.aspire/integrations/package-restore/6DE8FF3341FD8FE3/obj",
+        "projectStyle": "PackageReference",
+        "UsingMicrosoftNETSdk": false,
+        "configFilePaths": [
+          "/Users/paul/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net10.0"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {},
+          "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet9/nuget/v3/index.json": {}
+        },
+        "frameworks": {
+          "net10.0": {
+            "framework": "net10.0",
+            "targetAlias": "net10.0",
+            "projectReferences": {}
+          }
+        }
+      },
+      "frameworks": {
+        "net10.0": {
+          "framework": "net10.0",
+          "targetAlias": "net10.0",
+          "dependencies": {
+            "Aspire.Hosting": {
+              "target": "Package",
+              "version": "[13.4.3, )"
+            },
+            "Aspire.Hosting.CodeGeneration.TypeScript": {
+              "target": "Package",
+              "version": "[13.4.3, )"
+            },
+            "Aspire.Hosting.PostgreSQL": {
+              "target": "Package",
+              "version": "[13.4.3, )"
+            },
+            "Aspire.Hosting.Redis": {
+              "target": "Package",
+              "version": "[13.4.3, )"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/Users/paul/Desktop/ss/.aspire/integrations/package-restore/6DE8FF3341FD8FE3/obj/RuntimeIdentifierGraph.json"
+        }
+      },
+      "runtimes": {
+        "osx-arm64": {
+          "#import": []
+        }
+      }
+    }
+  }
+}
