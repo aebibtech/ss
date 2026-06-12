@@ -5,11 +5,46 @@ import { organization } from "better-auth/plugins/organization";
 import { admin } from "better-auth/plugins/admin";
 import { bearer } from "better-auth/plugins/bearer";
 import { magicLink } from "better-auth/plugins/magic-link";
+import { organization as orgTable, member as memberTable } from "./db/schema";
 
 export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
   }),
+  trustedOrigins: ["http://localhost:*"],
+  databaseHooks: {
+    user: {
+      create: {
+        after: async (user) => {
+          try {
+            const orgId = crypto.randomUUID();
+            const memberId = crypto.randomUUID();
+            const orgName = `${user.name || 'User'}'s Team`;
+            const orgSlug = `${user.id.substring(0, 8)}-org-${Math.floor(Math.random() * 1000)}`;
+
+            await db.insert(orgTable).values({
+              id: orgId,
+              name: orgName,
+              slug: orgSlug,
+              createdAt: new Date(),
+            });
+
+            await db.insert(memberTable).values({
+              id: memberId,
+              organizationId: orgId,
+              userId: user.id,
+              role: "owner",
+              createdAt: new Date(),
+            });
+
+            console.log(`[Database Hook] Automatically created default organization ${orgSlug} for user ${user.id}`);
+          } catch (error) {
+            console.error("[Database Hook] Failed to automatically create organization for user:", error);
+          }
+        },
+      },
+    },
+  },
   plugins: [
     organization(),
     admin(),
